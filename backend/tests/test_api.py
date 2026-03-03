@@ -81,3 +81,28 @@ def test_upload_endpoint_and_start_task(client: TestClient):
     detail = client.get(f"/api/tasks/{task_id}").json()
     assert detail["total_files"] == 2
     assert detail["status"] in {"pending", "running", "completed"}
+
+
+def test_upload_endpoint_can_append_files_to_existing_task(client: TestClient):
+    first_batch = [
+        ("files", ("a.txt", b"a", "text/plain")),
+        ("files", ("b.txt", b"bb", "text/plain")),
+    ]
+    created = client.post("/api/tasks/upload", data={"label": "batch"}, files=first_batch)
+    assert created.status_code == 200
+    task_id = created.json()["task"]["id"]
+
+    second_batch = [
+        ("files", ("c.txt", b"ccc", "text/plain")),
+    ]
+    appended = client.post(
+        "/api/tasks/upload",
+        data={"label": "batch", "task_id": str(task_id)},
+        files=second_batch,
+    )
+    assert appended.status_code == 200
+    assert appended.json()["task"]["id"] == task_id
+
+    detail = client.get(f"/api/tasks/{task_id}").json()
+    assert detail["total_files"] == 3
+    assert detail["total_bytes"] == 6

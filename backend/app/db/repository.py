@@ -5,7 +5,7 @@ from typing import Any
 
 import aiosqlite
 
-from app.models.schemas import CreateTaskRequest, FileStatus, TaskStatus
+from app.models.schemas import CreateFileItem, CreateTaskRequest, FileStatus, TaskStatus
 
 
 def now_iso() -> str:
@@ -49,6 +49,36 @@ class Repository:
             )
             await db.commit()
             return int(task_id)
+        finally:
+            await db.close()
+
+    async def append_files_to_task(self, task_id: int, files: list[CreateFileItem]) -> None:
+        if not files:
+            return
+
+        db = await self._open()
+        try:
+            for item in files:
+                await db.execute(
+                    """
+                    INSERT INTO files(task_id,name,size,relative_path,mime_type,status)
+                    VALUES(?,?,?,?,?,?)
+                    """,
+                    (task_id, item.name, item.size, item.relative_path, item.mime_type, FileStatus.pending.value),
+                )
+            await db.execute(
+                """
+                UPDATE tasks
+                SET total_files=total_files+?, total_bytes=total_bytes+?, updated_at=?
+                WHERE id=?
+                """,
+                (len(files), sum(item.size for item in files), now_iso(), task_id),
+            )
+            await db.execute(
+                "INSERT INTO events(task_id,level,message,created_at) VALUES(?,?,?,?)",
+                (task_id, "info", f"追加文件: {len(files)}", now_iso()),
+            )
+            await db.commit()
         finally:
             await db.close()
 
