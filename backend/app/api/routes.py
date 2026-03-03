@@ -45,6 +45,7 @@ async def config_preview(services=Depends(get_services)) -> ConfigPreview:
 @router.post("/tasks/upload", response_model=UploadTaskCreateResponse)
 async def create_task_by_upload(
     label: str = Form("批量上传任务"),
+    task_id: int | None = Form(None),
     files: list[UploadFile] = File(...),
     services=Depends(get_services),
 ) -> UploadTaskCreateResponse:
@@ -72,8 +73,19 @@ async def create_task_by_upload(
         )
 
     payload = CreateTaskRequest(label=label, files=file_items)
-    task_id = await services.repo.create_task(payload)
-    task = await services.repo.get_task(task_id)
+
+    current_task_id = task_id
+    if current_task_id is None:
+        current_task_id = await services.repo.create_task(payload)
+    else:
+        task = await services.repo.get_task(current_task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        if task["status"] == TaskStatus.running.value:
+            raise HTTPException(status_code=400, detail="任务运行中，不能追加文件")
+        await services.repo.append_files_to_task(current_task_id, payload.files)
+
+    task = await services.repo.get_task(current_task_id)
     return UploadTaskCreateResponse(task=TaskSummary(**task), accepted_files=len(file_items))
 
 

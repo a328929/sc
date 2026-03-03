@@ -23,15 +23,31 @@ type TaskDetailResponse = {
   }>;
 };
 
-export async function createTaskByUpload(label: string, files: File[]): Promise<number> {
+const UPLOAD_BATCH_SIZE = 40;
+
+async function uploadTaskBatch(label: string, files: File[], taskId?: number): Promise<number> {
   const formData = new FormData();
   formData.append('label', label);
+  if (taskId) formData.append('task_id', String(taskId));
   files.forEach((file) => formData.append('files', file));
 
   const response = await fetch(`${API_BASE}/tasks/upload`, { method: 'POST', body: formData });
   if (!response.ok) throw new Error(`创建任务失败: ${response.status}`);
   const body = await response.json();
   return body.task.id as number;
+}
+
+export async function createTaskByUpload(label: string, files: File[]): Promise<number> {
+  if (files.length === 0) throw new Error('至少需要一个文件');
+
+  let taskId: number | undefined;
+  for (let i = 0; i < files.length; i += UPLOAD_BATCH_SIZE) {
+    const batch = files.slice(i, i + UPLOAD_BATCH_SIZE);
+    taskId = await uploadTaskBatch(label, batch, taskId);
+  }
+
+  if (!taskId) throw new Error('创建任务失败: 无任务ID');
+  return taskId;
 }
 
 export async function startTask(taskId: number): Promise<void> {
